@@ -28,24 +28,50 @@ jobs:
 
       - name: Derrubar a topologia antiga
         run: |
-          # TODO: apague os três containers, se existirem.
-          # Dica: o passo não pode falhar quando eles ainda não existem.
-          echo "TODO"
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker rm front || true
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker rm api || true
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker rm banco || true
+          
 
       - name: Criar rede e volume
         run: |
-          # TODO: as duas redes e o volume. A rede do banco é interna.
-          # Dica: criar o que já existe devolve erro. Trate isso.
-          echo "TODO"
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker network create web || true
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker network create dados --interna || true
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker volume create pgdata || true
 
       - name: Subir banco, API e front
+        env:
+            DB_SENHA: ${{ secrets.DB_SENHA }}
         run: |
-          # TODO: os três containers, na ordem certa.
-          # O front precisa receber o commit que o deploy publicou:
-          #   -e DEPLOY_SHA=${{ github.sha }}
-          echo "TODO"
+         ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker run postgres:17-alpine \
+            --name banco \
+            --network dados \
+            -v pgdata:/var/lib/postgresql/data \
+            -e POSTGRES_PASSWORD="$DB_SENHA" \
+            -e POSTGRES_DB=pokedex
+
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker run gr-atv2-api:1 \
+            --name api \
+            --network dados \
+            -e POSTGRES_HOST=gr-${SLUG}-banco \
+            -e POSTGRES_DB=pokedex \
+            -e POSTGRES_PASSWORD="$DB_SENHA"
+
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker network connect web api
+
+          ssh -i ~/.ssh/deploy gr-${SLUG}@gr.lab.ayty.org gr-docker run gr-atv2-front:1 \
+            --name front \
+            --network web \
+            -p ${PORTA}:80 \
+            -e API=gr-${SLUG}-api \
+            -e DEPLOY_SHA=${{ github.sha }}
+         
 
       - name: Conferir que subiu
         run: |
-          # TODO: pergunte ao servidor se a listagem responde.
-          echo "TODO"
+         curl --fail \
+            --show-error \
+            --retry 12 \
+            --retry-delay 5 \
+            --retry-connrefused \
+            "http://gr.lab.ayty.org:${PORTA}/api/pokemons"
